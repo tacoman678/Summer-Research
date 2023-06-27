@@ -1,4 +1,3 @@
-# Summer-Research
 # Sensor Data Collection and Display
 
 This repository contains three code files that work together to collect sensor data from a BME280 sensor connected to an ESP32 board, and display the collected data in a web interface.
