@@ -1,29 +1,106 @@
-var timeData;
-var temperatureData;
-var pressureData;
-var altitudeData;
-var humidityData;
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>  <!-- Include Chart.js library -->
+   </head>
+<body>
+  <canvas id="tempChart"></canvas>  <!-- Temperature Chart -->
+  <canvas id="pressChart"></canvas>  <!-- Pressure Chart -->
+  <canvas id="altChart"></canvas>  <!-- Altitude Chart -->
+  <canvas id="humChart"></canvas>  <!-- Humidity Chart -->
+  <table cellspacing="5" cellpadding="5">
+    <tr> 
+        <td>ID</td> 
+        <td>Temperature (F)</td>
+        <td>Pressure (hPa)</td>
+        <td>Altitude (m)</td>
+        <td>Humidity (%)</td>
+        <td>Reading Time</td>
+    </tr>
 
-function getData() {
-    // AJAX request to fetch data from the server
-    var xhr = new XMLHttpRequest();
-    xhr.onreadystatechange = function() {
-        if (this.readyState == 4 && this.status == 200) {
-            var data = JSON.parse(this.responseText);
-            timeData = data.timeData.reverse(); // Reverse the timeData array for proper chronological order
-            temperatureData = data.temperatureData.reverse();
-            pressureData = data.pressureData.reverse();
-            altitudeData = data.altitudeData.reverse();
-            humidityData = data.humidityData.reverse();
-            updateCharts();
-            populateTable();
-        }
-    };
-    xhr.open("GET", "temp-data.php", true);
-    xhr.send();
+<?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+$timeRange = $_GET['time-range'];
+
+$servername = "---------";
+$dbname = "---------";
+$username = "--------";
+$password = "--------";
+
+// Create connection to the database
+$conn = new mysqli($servername, $username, $password, $dbname);
+
+// Check connection
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
 }
 
-function updateCharts() {
+switch ($timeRange) {
+    case 'last-hour':
+        $timeCondition = "reading_time >= NOW() - INTERVAL 1 HOUR";
+        break;
+    case 'last-24-hours':
+        $timeCondition = "reading_time >= NOW() - INTERVAL 24 HOUR";
+        break;
+    case 'last-week':
+        $timeCondition = "reading_time >= NOW() - INTERVAL 7 DAY";
+        break;
+    case 'all-time':
+    default:
+        $timeCondition = "1"; // Retrieve all records
+        break;
+}
+
+$sql = "SELECT id, temperature, reading_time, pressure, altitude, humidity FROM SensorData WHERE $timeCondition ORDER BY id DESC";
+
+$result = $conn->query($sql);
+$timeData = array();
+$temperatureData = array();
+$pressureData = array();
+$altitudeData = array();
+$humidityData = array();
+
+if ($result) {
+    while ($row = $result->fetch_assoc()) {
+        $row_id = $row["id"];
+        $row_temp = $row["temperature"]; 
+        $row_reading_time = $row["reading_time"];
+        $row_reading_time = date("Y-m-d H:i:s", strtotime("$row_reading_time - 3 hours"));  // Adjust time zone if necessary
+        $row_press = $row["pressure"];
+        $row_alt = $row["altitude"];
+        $row_hum = $row["humidity"];
+        $timeData[] = $row_reading_time;
+        $temperatureData[] = $row_temp;
+        $pressureData[] = $row_press;
+        $altitudeData[] = $row_alt;
+        $humidityData[] = $row_hum;
+        echo '<tr> 
+                <td>' . $row_id . '</td> 
+                <td>' . $row_temp . '</td>  
+                <td>' . $row_press . '</td> 
+                <td>' . $row_alt . '</td> 
+                <td>' . $row_hum . '</td>
+                <td>' . $row_reading_time . '</td>
+              </tr>';
+    }
+    $result->free();
+} else {
+    echo "Error: " . $sql . "<br>" . $conn->error;
+}
+
+$conn->close();
+?>
+</table>
+
+<script>
+    var timeData = <?php echo json_encode(array_reverse($timeData)); ?>;  // Reverse the timeData array for proper chronological order
+    var temperatureData = <?php echo json_encode(array_reverse($temperatureData)); ?>;
+    var pressureData = <?php echo json_encode(array_reverse($pressureData)); ?>;
+    var altitudeData = <?php echo json_encode(array_reverse($altitudeData)); ?>;
+    var humidityData = <?php echo json_encode(array_reverse($humidityData)); ?>;
+
     // Temperature vs Time Chart
     var ctx1 = document.getElementById('tempChart').getContext('2d');
     var tempChart = new Chart(ctx1, {
@@ -159,25 +236,6 @@ function updateCharts() {
             }
         }
     });
-}
-
-function populateTable() {
-    var table = document.querySelector('table');
-    for (var i = 0; i < timeData.length; i++) {
-        var row = table.insertRow(-1);
-        var cell1 = row.insertCell(0);
-        var cell2 = row.insertCell(1);
-        var cell3 = row.insertCell(2);
-        var cell4 = row.insertCell(3);
-        var cell5 = row.insertCell(4);
-        var cell6 = row.insertCell(5);
-        cell1.innerHTML = i + 1;
-        cell2.innerHTML = temperatureData[i];
-        cell3.innerHTML = pressureData[i];
-        cell4.innerHTML = altitudeData[i];
-        cell5.innerHTML = humidityData[i];
-        cell6.innerHTML = timeData[i];
-    }
-}
-
-getData();
+</script>
+</body>
+</html>
