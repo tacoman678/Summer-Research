@@ -1,112 +1,244 @@
-#include <WiFi.h>  // Library for WiFi functionality
-#include <WiFiClientSecure.h>  // Library for secure WiFi client
-#include <HTTPClient.h>  // Library for making HTTP requests
-#include <Wire.h>  // Library for I2C communication
-#include <Adafruit_Sensor.h>  // Library for sensor functionality
-#include <Adafruit_BME280.h>  // Library for BME280 sensor
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <Wire.h>
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+#include <vector>
 
-#define SEALEVELPRESSURE_HPA (1013.25)  // Define sea level pressure constant
-const char* ssid = "-------";  // WiFi network name
-const char* password = "------";  // WiFi network password
-const char* serverName = "https://danbajda.com/post-esp-data.php";  // Server URL to send data to
-String apiKeyValue = "---------";  // API key for authentication
-Adafruit_BME280 bme;  // BME280 sensor object
-int resetPin = 13;  // Pin number for resetting the device
+#define SEALEVELPRESSURE_HPA (1013.25)
+const char* ssid = "----------";
+const char* password = "---------";
+const char* serverName = "-----------";
+String apiKeyValue = "---------";
+Adafruit_BME280 bme; // I2C
+unsigned long startTime;
+unsigned long startTimeout;
+unsigned long timeout = 10000;
+unsigned long elapsedTime = 0;
+unsigned long offline = 0;
+int wifiMode = A0;
+int wifiModeValue = 0;
+WiFiClientSecure *client = nullptr;
+HTTPClient https;
+u_int64_t sleepTime = 50000000; // 50 seconds in microseconds
 
-void setup() {
-  Serial.begin(9600);  // Initialize serial communication
+void checkWifiConnection(){
   Serial.print("Connecting to ");
   Serial.println(ssid);
-  WiFi.begin(ssid, password);  // Connect to WiFi network
-  
-  while (WiFi.status() != WL_CONNECTED) {  // Wait for WiFi connection
+  WiFi.begin(ssid, password);
+  startTimeout = millis();
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
+    if(millis() - startTimeout >= timeout){
+      Serial.println("Failed to connect");
+      break;
+    }
   }
-  
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());  // Print local IP address
-  
-  bool status = bme.begin(0x77);  // Initialize BME280 sensor with I2C address
-  
+}
+
+void uploadDataToServer(String avgTemp, String avgPress, String avgAlt, String avgHum, String offline, String interval){
+  https.begin(*client, serverName);
+  https.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  String httpRequestData = "api_key=" + apiKeyValue + "&temperature=" + avgTemp + "&pressure=" + avgPress + "&altitude=" + avgAlt + "&humidity=" + avgHum + "&offline=" + offline + "&interval=" + interval;
+  Serial.print("httpRequestData: ");
+  Serial.println(httpRequestData);
+  int httpResponseCode = https.POST(httpRequestData);
+  if (httpResponseCode>0) {
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+  }
+  https.end();
+}
+
+std::vector<String> parseDataString(const String& dataString) {
+  std::vector<String> measurements;
+
+  int startIndex = 0;
+  int endIndex = 0;
+
+  // Parse temperature
+  startIndex = dataString.indexOf("temp=") + 5;
+  endIndex = dataString.indexOf(" ", startIndex);
+  String tempString = dataString.substring(startIndex, endIndex);
+  measurements.push_back(tempString);
+
+  // Parse pressure
+  startIndex = dataString.indexOf("press=") + 6;
+  endIndex = dataString.indexOf(" ", startIndex);
+  String pressString = dataString.substring(startIndex, endIndex);
+  measurements.push_back(pressString);
+
+  // Parse altitude
+  startIndex = dataString.indexOf("alt=") + 4;
+  endIndex = dataString.indexOf(" ", startIndex);
+  String altString = dataString.substring(startIndex, endIndex);
+  measurements.push_back(altString);
+
+  // Parse humidity
+  startIndex = dataString.indexOf("hum=") + 4;
+  endIndex = dataString.indexOf(" ", startIndex);
+  String humString = dataString.substring(startIndex, endIndex);
+  measurements.push_back(humString);
+
+  // Parse offline
+  startIndex = dataString.indexOf("offline=") + 8;
+  endIndex = dataString.indexOf(" ", startIndex);
+  String offlineString = dataString.substring(startIndex, endIndex);
+  measurements.push_back(offlineString);
+
+  // Parse interval
+  startIndex = dataString.indexOf("interval=") + 9;
+  endIndex = dataString.indexOf("\n", startIndex);
+  String intervalString = dataString.substring(startIndex, endIndex);
+  measurements.push_back(intervalString);
+
+  return measurements;
+}
+
+void deepSleep(u_int64_t microseconds) {
+  esp_sleep_enable_timer_wakeup(microseconds);
+  esp_deep_sleep_start();
+}
+
+void readFile(fs::FS &fs, const char * path){
+    Serial.printf("Reading file: %s\n", path);
+
+    File file = fs.open(path);
+    if(!file){
+        Serial.println("Failed to open file for reading");
+        return;
+    }
+
+    Serial.print("Read from file: ");
+    while(file.available()){
+        Serial.write(file.read());
+    }
+    file.close();
+}
+
+void writeFile(fs::FS &fs, const char * path, const char * message){
+    Serial.printf("Writing file: %s\n", path);
+
+    File file = fs.open(path, FILE_WRITE);
+    if(!file){
+        Serial.println("Failed to open file for writing");
+        return;
+    }
+    if(file.print(message)){
+        Serial.println("File written");
+    } else {
+        Serial.println("Write failed");
+    }
+    file.close();
+}
+
+void appendFile(fs::FS &fs, const char * path, const char * message){
+    Serial.printf("Appending to file: %s\n", path);
+
+    File file = fs.open(path, FILE_APPEND);
+    if(!file){
+        Serial.println("Failed to open file for appending");
+        return;
+    }
+    if(file.print(message)){
+        Serial.println("Message appended");
+    } else {
+        Serial.println("Append failed");
+    }
+    file.close();
+}
+
+
+
+
+void setup() {
+  Serial.begin(115200);
+  wifiModeValue = analogRead(A0);
+  Serial.println(wifiModeValue);
+
+  if(!SD.begin()){
+      Serial.println("Card Mount Failed");
+      return;
+  }
+
+  bool status = bme.begin(0x77);  
   if (!status) {
     Serial.println("Could not find a valid BME280 sensor");
-    while (1);  // Hang indefinitely if sensor not found
+    while (1);
+  }
+
+  if(wifiModeValue > 0){
+    checkWifiConnection();
+    client = new WiFiClientSecure;
+    client->setInsecure(); // Don't use SSL certificate
   }
 }
 
 void loop() {
+  File file = SD.open("/data.txt");
+  if(file && wifiModeValue > 0){
+    while (file.available()) {
+      String data = file.readStringUntil('\n');
+      std::vector<String> measuredValues = parseDataString(data);
+      String temperature = measuredValues[0];
+      String pressure = measuredValues[1];
+      String altitude = measuredValues[2];
+      String humidity = measuredValues[3];
+      String offline = measuredValues[4];
+      String interval = measuredValues[5];
+      uploadDataToServer(temperature, pressure, altitude, humidity, offline, interval);
+      delay(1000); // Delay between uploads to prevent overwhelming the server
+    }
+    file.close();
+    SD.remove("/data.txt");
+    offline = 0;
+  }
+  startTime = millis();
   double avgTemp = 0;
   double avgPress = 0;
   double avgAlt = 0;
   double avgHum = 0;
-  
-  for(int i = 0; i < 10; i++){  // Read sensor values 10 times and calculate average
+  int numReadings = 10;
+  for(int i = 0; i < numReadings; i++){
     avgTemp += bme.readTemperature();
     avgPress += bme.readPressure() / 100.0F;
     avgAlt += bme.readAltitude(SEALEVELPRESSURE_HPA);
     avgHum += bme.readHumidity();
-    delay(3000);
+    delay(1000);
   }
-  
-  avgTemp /= 10;  // Calculate average values
-  avgTemp = avgTemp * 1.8 + 32;  // Convert temperature to Fahrenheit
-  avgPress /= 10;
-  avgAlt /= 10;
-  avgHum /= 10;
-  
-  if(WiFi.status()== WL_CONNECTED){  // Check WiFi connection status
-    WiFiClientSecure *client = new WiFiClientSecure;  // Create a secure WiFi client
-    client->setInsecure();  // Disable SSL certificate verification
-    HTTPClient https;
-    
-    https.begin(*client, serverName);  // Initialize HTTPS connection to server
-    
-    https.addHeader("Content-Type", "application/x-www-form-urlencoded");  // Specify content-type header
-    
-    // Prepare HTTP POST request data
-    char buffer[10];  // Buffer to hold the converted string
-    char buffer1[10];
-    char buffer2[10];
-    char buffer3[10];
-    dtostrf(avgTemp, 4, 2, buffer);  // Convert double to string with 4 digits and 2 decimal places
-    dtostrf(avgPress, 4, 2, buffer1);
-    dtostrf(avgAlt, 4, 2, buffer2);
-    dtostrf(avgHum, 4, 2, buffer3);
-    String httpRequestData = "api_key=" + apiKeyValue + "&temperature=" + String(buffer) + "&pressure=" + String(buffer1) + "&altitude=" + String(buffer2) + "&humidity=" + String(buffer3);
-    Serial.print("httpRequestData: ");
-    Serial.println(httpRequestData);
-    
-    int httpResponseCode = https.POST(httpRequestData);  // Send HTTP POST request
-    
-    if (httpResponseCode>0) {
-      Serial.print("HTTP Response code: ");
-      Serial.println(httpResponseCode);
-    }
-    else {
-      Serial.print("Error code: ");
-      Serial.println(httpResponseCode);
-      pinMode(resetPin, OUTPUT);  // Reset the device if there is an error
-      digitalWrite(resetPin, LOW);
-      delay(100);
-      digitalWrite(resetPin, HIGH);
-    }
-    
-    https.end();  // Free resources
+  avgTemp /= numReadings;
+  avgTemp = avgTemp * 1.8 + 32;
+  avgPress /= numReadings;
+  avgAlt /= numReadings;
+  avgHum /= numReadings;
+
+  if(wifiModeValue > 0){
+    uploadDataToServer(String(avgTemp), String(avgPress), String(avgAlt), String(avgHum), "0", "0");
   }
   else {
-    Serial.println("WiFi Disconnected");
-    Serial.print("Connecting to ");
-    Serial.println(ssid);
-    WiFi.begin(ssid, password);  // Reconnect to WiFi network
-    
-    while (WiFi.status() != WL_CONNECTED) {  // Wait for WiFi connection
-      delay(500);
-      Serial.print(".");
+    char buffer[50]; // Buffer to hold the converted string values
+    int pressIntDigits = floor(avgPress);
+    int pressDecDigits = 2;
+    int altIntDigits = floor(avgAlt);
+    int altDecDigits = 2;
+    snprintf(buffer, sizeof(buffer), "temp=%.2f press=%.*f alt=%.*f hum=%.2f", avgTemp, pressDecDigits, avgPress, altDecDigits, avgAlt, avgHum);
+    String dataString = buffer;
+    Serial.println(dataString);
+    elapsedTime = millis() - startTime;
+    offline++;
+    dataString += " offline=" + String(offline) + " interval=" + String(elapsedTime) + "\n";
+    File data = SD.open("/data.txt");
+    if(data){
+      appendFile(SD, "/data.txt", dataString.c_str());
+    }
+    else{
+      writeFile(SD, "/data.txt", dataString.c_str());
     }
   }
-  
-  delay(60000);  // Delay for 60 seconds
+  deepSleep(sleepTime);
 }
