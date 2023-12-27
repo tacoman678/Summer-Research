@@ -2,6 +2,8 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
+$selectedDay = $_GET['selected-day']; // Retrieve selected day from query parameter
+
 $servername = "";
 $dbname = "";
 $username = "";
@@ -15,15 +17,14 @@ if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
 
-$sql = "SELECT DISTINCT DATE(reading_time) AS reading_date FROM SensorData";
+$sql = "SELECT id, temperature, reading_time, pressure, altitude, humidity FROM SensorData WHERE DATE(reading_time) = '$selectedDay' ORDER BY id DESC";
 
 $result = $conn->query($sql);
-$datesArray = array();
+$dataArray = array();
 
 if ($result) {
     while ($row = $result->fetch_assoc()) {
-        $reading_date = $row["reading_date"];
-        $datesArray[] = $reading_date;
+        $dataArray[] = $row;
     }
     $result->free();
 } else {
@@ -33,5 +34,5 @@ if ($result) {
 $conn->close();
 
 header('Content-Type: application/json'); // Set the response content type to JSON
-echo json_encode($datesArray); // Encode the array as JSON and echo it
+echo json_encode($dataArray); // Encode the array as JSON and echo it
 ?>

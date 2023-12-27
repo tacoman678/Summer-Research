@@ -8,12 +8,13 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include <vector>
+#include "esp32-hal-gpio.h"
 
 #define SEALEVELPRESSURE_HPA (1013.25)
-const char* ssid = "----------";
-const char* password = "---------";
-const char* serverName = "-----------";
-String apiKeyValue = "---------";
+const char* ssid = "";
+const char* password = "";
+const char* serverName = "";
+String apiKeyValue = "";
 Adafruit_BME280 bme; // I2C
 unsigned long startTime;
 unsigned long startTimeout;
@@ -58,47 +59,28 @@ void uploadDataToServer(String avgTemp, String avgPress, String avgAlt, String a
 std::vector<String> parseDataString(const String& dataString) {
   std::vector<String> measurements;
 
-  int startIndex = 0;
-  int endIndex = 0;
+  // Split the dataString by spaces and newline characters
+  std::vector<String> tokens;
+  int tokenStart = 0;
+  int tokenEnd = dataString.indexOf(' ');
+  while (tokenEnd >= 0) {
+    tokens.push_back(dataString.substring(tokenStart, tokenEnd));
+    tokenStart = tokenEnd + 1;
+    tokenEnd = dataString.indexOf(' ', tokenStart);
+  }
+  tokens.push_back(dataString.substring(tokenStart));
 
-  // Parse temperature
-  startIndex = dataString.indexOf("temp=") + 5;
-  endIndex = dataString.indexOf(" ", startIndex);
-  String tempString = dataString.substring(startIndex, endIndex);
-  measurements.push_back(tempString);
-
-  // Parse pressure
-  startIndex = dataString.indexOf("press=") + 6;
-  endIndex = dataString.indexOf(" ", startIndex);
-  String pressString = dataString.substring(startIndex, endIndex);
-  measurements.push_back(pressString);
-
-  // Parse altitude
-  startIndex = dataString.indexOf("alt=") + 4;
-  endIndex = dataString.indexOf(" ", startIndex);
-  String altString = dataString.substring(startIndex, endIndex);
-  measurements.push_back(altString);
-
-  // Parse humidity
-  startIndex = dataString.indexOf("hum=") + 4;
-  endIndex = dataString.indexOf(" ", startIndex);
-  String humString = dataString.substring(startIndex, endIndex);
-  measurements.push_back(humString);
-
-  // Parse offline
-  startIndex = dataString.indexOf("offline=") + 8;
-  endIndex = dataString.indexOf(" ", startIndex);
-  String offlineString = dataString.substring(startIndex, endIndex);
-  measurements.push_back(offlineString);
-
-  // Parse interval
-  startIndex = dataString.indexOf("interval=") + 9;
-  endIndex = dataString.indexOf("\n", startIndex);
-  String intervalString = dataString.substring(startIndex, endIndex);
-  measurements.push_back(intervalString);
+  // Extract values from tokens
+  for (const String& token : tokens) {
+    int equalsIndex = token.indexOf('=');
+    if (equalsIndex >= 0) {
+      measurements.push_back(token.substring(equalsIndex + 1));
+    }
+  }
 
   return measurements;
 }
+
 
 void deepSleep(u_int64_t microseconds) {
   esp_sleep_enable_timer_wakeup(microseconds);
@@ -158,12 +140,16 @@ void appendFile(fs::FS &fs, const char * path, const char * message){
 
 void setup() {
   Serial.begin(115200);
+  pinMode(15, OUTPUT);
+  digitalWrite(15, LOW);  // sets the digital pin 15 off
+  Serial.println("Low");
+  delay(5000);
   wifiModeValue = analogRead(A0);
   Serial.println(wifiModeValue);
 
   if(!SD.begin()){
-      Serial.println("Card Mount Failed");
-      return;
+    Serial.println("Card Mount Failed");
+    while (1);
   }
 
   bool status = bme.begin(0x77);  
@@ -181,7 +167,7 @@ void setup() {
 
 void loop() {
   File file = SD.open("/data.txt");
-  if(file && wifiModeValue > 0){
+  if(file && wifiModeValue > 0 && WiFi.status() == WL_CONNECTED){
     while (file.available()) {
       String data = file.readStringUntil('\n');
       std::vector<String> measuredValues = parseDataString(data);
@@ -217,7 +203,7 @@ void loop() {
   avgAlt /= numReadings;
   avgHum /= numReadings;
 
-  if(wifiModeValue > 0){
+  if(wifiModeValue > 0 && WiFi.status() == WL_CONNECTED){
     uploadDataToServer(String(avgTemp), String(avgPress), String(avgAlt), String(avgHum), "0", "0");
   }
   else {
@@ -240,5 +226,9 @@ void loop() {
       writeFile(SD, "/data.txt", dataString.c_str());
     }
   }
+  digitalWrite(15, HIGH); // sets the digital pin 15 on
+  pinMode(15, INPUT_PULLUP);
+  gpio_deep_sleep_hold_en();
+  Serial.println("High");
   deepSleep(sleepTime);
 }

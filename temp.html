@@ -1,16 +1,265 @@
+<!DOCTYPE html>
 <html>
-    <head>
-    </head>
-    <body>
-        <form action="filtered-temp.php" method="GET">
-            <label for="time-range">Select Time Range:</label>
-            <select id="time-range" name="time-range">
-              <option value="last-hour">Last Hour</option>
-              <option value="last-24-hours">Last 24 Hours</option>
-              <option value="last-week">Last Week</option>
-              <option value="all-time">All Time</option>
-            </select>
-            <button type="submit">Filter</button>
-          </form>
-    </body>
+<head>
+     <title>Temperature Data</title>
+  	<link rel="icon" type="image/png" href="/static/logo.png">
+  	<meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.3/css/bulma.min.css">
+  	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  	<link rel="stylesheet" href="/static/projects.css">
+    <style>
+        /* Custom styles for the buttons */
+        #button-container {
+            display: flex;
+            flex-direction: column; /* List buttons vertically */
+            align-items: center; /* Center buttons vertically */
+            padding: 20px; /* Add padding around the buttons */
+            z-index: 1;
+            position: relative; /* Ensure proper stacking with background */
+        }
+
+        .button.is-dark {
+            width: 200px; /* Make buttons larger */
+            margin: 10px 0; /* Add margin between buttons */
+        }
+
+        /* Custom style for the table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #dddddd;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        /* Modal styling */
+        .modal-card {
+            max-width: 800px;
+        }
+    </style>
+</head>
+
+<body>
+    <section class="hero is-info">
+        <div class="overlay"></div>
+        <div class="hero-head">
+            <nav class="navbar">
+                <div class="container">
+                    <div class="navbar-brand">
+                        <a class="navbar-item" href="/index.html">
+                            <img src="/static/logo.png" alt="Logo">
+                        </a>
+                        <span class="navbar-burger" data-target="navbarMenuHeroB">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </span>
+                    </div>
+                    <div id="navbarMenuHeroB" class="navbar-menu">
+                        <div class="navbar-end">
+                            <a class="navbar-item is-active" href="/index.html">
+                                Home
+                            </a>
+                            <a class="navbar-item" href="/projects.html">
+                                Projects
+                            </a>
+                            <a class="navbar-item" href="/documentation.html">
+                                Documentation
+                            </a>
+                            <span class="navbar-item">
+                                <a class="button is-info is-inverted" href="https://github.com/tacoman678">
+                                    <span class="icon">
+                                        <i class="fab fa-github"></i>
+                                    </span>
+                                    <span>Download</span>
+                                </a>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <div class="hero-body">
+            <div class="container has-text-centered">
+                <p class="title">
+                    Data and Analytics by Date
+                </p>
+                <div id="button-container"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Modal template -->
+    <div id="modal-template" class="modal">
+        <div class="modal-background"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title" id="modal-title"></p>
+                <button class="delete" aria-label="close"></button>
+            </header>
+            <section class="modal-card-body">
+                <!-- Chart.js chart will be added here -->
+                <canvas id="temperature-chart"></canvas>
+                <!-- Bulma-style table for data -->
+                <table id="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Reading Time</th>
+                            <th>Temperature</th>
+                            <th>Pressure</th>
+                            <th>Altitude</th>
+                            <th>Humidity</th>
+                        </tr>
+                    </thead>
+                    <tbody id="data-container"></tbody>
+                </table>
+            </section>
+        </div>
+    </div>
+
+    <script>
+      // Function to toggle mobile menu
+        document.addEventListener('DOMContentLoaded', function () {
+            // Get the mobile menu burger
+            const burger = document.querySelector('.burger');
+            const menu = document.querySelector('#navbarMenuHeroB');
+
+            // Add click event to burger to toggle menu
+            burger.addEventListener('click', function () {
+                burger.classList.toggle('is-active');
+                menu.classList.toggle('is-active');
+            });
+        });
+      
+      // Function to populate the buttons for available days
+        function populateAvailableDaysButtons() {
+            fetch('filtered-temp.php')
+                .then(response => response.json())
+                .then(data => {
+                    const buttonContainer = document.getElementById('button-container');
+                    buttonContainer.innerHTML = '';
+
+                    data.forEach(date => {
+                        const button = document.createElement('button');
+                        button.textContent = date;
+                        button.classList.add('button', 'is-dark');
+                        button.addEventListener('click', () => openModal(date));
+                        buttonContainer.appendChild(button);
+
+                        // Create a new modal for each day
+                        const modalTemplate = document.getElementById('modal-template').cloneNode(true);
+                        modalTemplate.id = `modal-${date}`;
+                        document.body.appendChild(modalTemplate);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching available days:', error);
+                });
+        }
+
+        // Function to open a modal with the chart for a specific day
+        function openModal(selectedDay) {
+            const modal = document.getElementById(`modal-${selectedDay}`);
+            modal.classList.add('is-active');
+            const titleContainer = modal.querySelector('.modal-card-title');
+            titleContainer.innerHTML = selectedDay;
+
+            // Fetch data and create the chart for the selected day
+            fetchDataForSelectedDay(selectedDay, modal);
+        }
+
+        // Function to fetch and display data for the selected day
+        function fetchDataForSelectedDay(selectedDay, modal) {
+            // Fetch data for the selected day
+            fetch('getData.php?selected-day=' + selectedDay)
+                .then(response => response.json())
+                .then(data => {
+                    const dataContainer = modal.querySelector('.modal-card-body #data-container');
+                    dataContainer.innerHTML = '';
+
+                    const table = modal.querySelector('.modal-card-body #data-table');
+                    const tbody = document.createElement('tbody');
+
+                    data.forEach(row => {
+                        const rowHTML = document.createElement('tr');
+                        rowHTML.innerHTML = `
+                            <td>${row.id}</td>
+                            <td>${row.reading_time}</td>
+                            <td>${row.temperature}</td>
+                            <td>${row.pressure}</td>
+                            <td>${row.altitude}</td>
+                            <td>${row.humidity}</td>
+                        `;
+                        tbody.appendChild(rowHTML);
+                    });
+
+                    table.appendChild(tbody);
+
+                    // Create a Chart.js chart for temperature data
+                    const temperatureLabels = data.map(row => row.reading_time);
+                    const temperatureValues = data.map(row => row.temperature);
+
+                    const chartData = {
+                        labels: temperatureLabels,
+                        datasets: [
+                            {
+                                label: 'Temperature',
+                                data: temperatureValues,
+                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                                borderColor: 'rgba(75, 192, 192, 1)',
+                                borderWidth: 1,
+                            },
+                        ],
+                    };
+
+                    const chartOptions = {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: false,
+                            },
+                        },
+                    };
+
+                    const ctx = modal.querySelector('.modal-card-body #temperature-chart').getContext('2d');
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: chartData,
+                        options: chartOptions,
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                });
+        }
+
+        // Populate the buttons for available days when the page loads
+        populateAvailableDaysButtons();
+
+      	function closeModal(selectedDay) {
+            const modal = document.getElementById(`modal-${selectedDay}`);
+            modal.classList.remove('is-active');
+        }
+
+        document.body.addEventListener('click', (event) => {
+            if (event.target.classList.contains('delete')) {
+                const selectedDay = event.target.closest('.modal').id.replace('modal-', '');
+                closeModal(selectedDay);
+            }
+        });
+    </script>
+</body>
 </html>

@@ -1,11 +1,15 @@
 <?php
-$servername = "-----------";  // Server name or IP address
-$dbname = "-----------";  // Database name
-$username = "----------";  // Database username
-$password = "---------";  // Database password
-$api_key_value = "-----------";  // API key for authentication
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 
-$api_key = $temperature = $pressure = $altitude = $humidity = "";  // Initialize variables
+$servername = "";
+$dbname = "";
+$username = "";
+$password = "";
+$api_key_value = "";
+
+$api_key = $temperature = $pressure = $altitude = $humidity = $offline = $interval = "";  // Initialize variables
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $api_key = test_input($_POST["api_key"]);  // Get the API key from the POST data
@@ -15,6 +19,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $pressure = test_input($_POST["pressure"]);
         $altitude = test_input($_POST["altitude"]);
         $humidity = test_input($_POST["humidity"]);
+        $offline = test_input($_POST["offline"]);
+        $interval = test_input($_POST["interval"]);
 
         // Create connection to the database
         $conn = new mysqli($servername, $username, $password, $dbname);
@@ -22,10 +28,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // Check connection
         if ($conn->connect_error) {
             die("Connection failed: " . $conn->connect_error);
+        } else {
+            echo "Connected successfully";
         }
 
-        $sql = "INSERT INTO SensorData (temperature, pressure, altitude, humidity)
-        VALUES ('" . $temperature . "', '" . $pressure . "', '" . $altitude . "', '" . $humidity . "')";
+        $sql = "INSERT INTO `SensorData` (`temperature`, `pressure`, `altitude`, `humidity`, `offline`, `delay`) VALUES ('" . $temperature . "', '" . $pressure . "', '" . $altitude . "', '" . $humidity . "', '" . $offline . "', '" . $interval . "');";
+
+        echo "SQL query: " . $sql;
 
         if ($conn->query($sql) === TRUE) {  // Execute the SQL query
             echo "New record created successfully";
